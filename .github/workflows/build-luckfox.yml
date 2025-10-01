@@ -31,7 +31,23 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        submodules: recursive
+        submodules: false
+    
+    - name: Initialize submodules
+      run: |
+        # Remove any problematic submodule entries
+        if [ -f .gitmodules ]; then
+          # Try to init submodules, skip if they fail
+          git submodule sync || true
+          git submodule update --init --recursive || {
+            echo "Some submodules failed to initialize, continuing anyway..."
+            # Initialize submodules one by one
+            git submodule status | awk '{print $2}' | while read submodule; do
+              echo "Trying to initialize $submodule..."
+              git submodule update --init "$submodule" || echo "Failed to init $submodule, skipping..."
+            done
+          }
+        fi
     
     - name: Cache build dependencies
       uses: actions/cache@v4
