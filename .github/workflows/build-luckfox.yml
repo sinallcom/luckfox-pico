@@ -99,7 +99,8 @@ jobs:
       run: |
         export USE_CCACHE=1
         export CCACHE_DIR=~/.ccache
-        echo "${{ env.BOARD_MODEL }}" | ./build.sh lunch
+        # echo "${{ env.BOARD_MODEL }}" | ./build.sh lunch
+        printf "4\n0\n0\n" | ./build.sh lunch
         ./build.sh
     
     - name: Show ccache statistics
