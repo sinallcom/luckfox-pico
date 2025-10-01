@@ -1,0 +1,116 @@
+name: Build Luckfox Firmware
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      board_model:
+        description: 'Board Model'
+        required: true
+        default: 'RV1106_Luckfox_Pico_Max'
+        type: choice
+        options:
+          - RV1106_Luckfox_Pico_Max
+          - RV1106_Luckfox_Pico_Plus
+          - RV1106_Luckfox_Pico_Pro
+          - RV1103_Luckfox_Pico
+          - RV1103_Luckfox_Pico_Mini_A
+          - RV1103_Luckfox_Pico_Mini_B
+
+env:
+  BOARD_MODEL: ${{ github.event.inputs.board_model || 'RV1106_Luckfox_Pico_Max' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Cache build dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache
+          buildroot/dl
+          buildroot/output
+          sysdrv/tools
+        key: luckfox-${{ runner.os }}-${{ env.BOARD_MODEL }}-${{ hashFiles('**/Makefile', '**/Config.in') }}
+        restore-keys: |
+          luckfox-${{ runner.os }}-${{ env.BOARD_MODEL }}-
+          luckfox-${{ runner.os }}-
+    
+    - name: Free up disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf "/usr/local/share/boost"
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        df -h
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git ssh make gcc gcc-multilib g++-multilib \
+          module-init-tools cpio bc curl \
+          unzip rsync wget python3 python3-pip \
+          device-tree-compiler libncurses5-dev \
+          qemu-user-static binfmt-support \
+          repo git-lfs ccache
+    
+    - name: Set up ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ccache-${{ runner.os }}-${{ env.BOARD_MODEL }}-${{ github.sha }}
+        restore-keys: |
+          ccache-${{ runner.os }}-${{ env.BOARD_MODEL }}-
+          ccache-${{ runner.os }}-
+    
+    - name: Set up environment
+      run: |
+        echo "Building Luckfox firmware for board: ${{ env.BOARD_MODEL }}"
+        export LC_ALL=C.UTF-8
+        export USE_CCACHE=1
+        export CCACHE_DIR=~/.ccache
+        ccache -M 5G
+        ccache -s
+    
+    - name: Build firmware
+      run: |
+        export USE_CCACHE=1
+        export CCACHE_DIR=~/.ccache
+        echo "${{ env.BOARD_MODEL }}" | ./build.sh lunch
+        ./build.sh
+    
+    - name: Show ccache statistics
+      run: ccache -s
+    
+    - name: Create release artifacts
+      run: |
+        mkdir -p release
+        find output/image -type f \( -name "*.img" -o -name "*.bin" \) -exec cp {} release/ \;
+        cd release
+        ls -lh
+    
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: luckfox-${{ env.BOARD_MODEL }}-${{ github.sha }}
+        path: release/*
+        retention-days: 30
+    
+    - name: Create Release (on tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
